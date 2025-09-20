@@ -17,10 +17,11 @@ const (
 )
 
 type Counter struct {
-	Success         uint32
-	Failure         uint32
-	FailureThrehold uint32
-	RetryThreshold  time.Time
+	Success          uint32
+	Failure          uint32
+	FailureThrehold  uint32
+	TimeoutThreshold time.Time
+	RetryThreshold   time.Time
 }
 
 type Breaker[T any] struct {
@@ -32,7 +33,7 @@ type Breaker[T any] struct {
 func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {
 	var zero T
 	if br.State == Open {
-		return zero, fmt.Errorf("circuit braker is open")
+		return zero, fmt.Errorf("circuit breaker is open")
 	}
 	res, err := fn()
 	if err != nil {
@@ -51,5 +52,15 @@ func (br *Breaker[T]) failure() {
 	atomic.AddUint32(&br.Counter.Failure, 1)
 	if br.Counter.Failure >= br.Counter.FailureThrehold {
 		br.State = Open
+	}
+}
+
+func InitBreaker[T any](name string) *Breaker[T] {
+	return &Breaker[T]{
+		Name: name,
+		Counter: Counter{
+			FailureThrehold: 10,
+		},
+		State: Closed,
 	}
 }
