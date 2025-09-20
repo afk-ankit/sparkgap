@@ -57,14 +57,10 @@ func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {
 	case HalfOpen:
 		res, err := fn()
 		if err != nil {
-			// TODO: remove logs
-			fmt.Println("Retry Unsuccessfull")
 			br.failure()
 			return res, err
 		}
 		atomic.StoreUint32(&br.Counter.Failure, 0)
-		// TODO: remove logs
-		fmt.Println("Retry Successfull")
 		br.setState(Closed)
 		return res, nil
 	case Closed:
