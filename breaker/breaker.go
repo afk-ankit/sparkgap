@@ -18,16 +18,19 @@ const (
 )
 
 type Counter struct {
-	Failure         uint32
-	FailureThrehold uint32
-	RetryDuration   time.Duration
+	Failure          uint32
+	FailureThreshold uint32
+	RetryDuration    time.Duration
+	Success          uint32
+	SuccessThreshold uint32
 }
 
 type Breaker[T any] struct {
-	Name    string
-	Counter Counter
-	State   int
-	mu      sync.RWMutex
+	Name            string
+	Counter         Counter
+	State           int
+	TimeOutDuration time.Duration
+	mu              sync.RWMutex
 }
 
 func (br *Breaker[T]) startRetry() {
@@ -60,9 +63,8 @@ func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {
 			br.failure()
 			return res, err
 		}
-		atomic.StoreUint32(&br.Counter.Failure, 0)
-		br.setState(Closed)
-		return res, nil
+		br.success()
+		return res, err
 	case Closed:
 		res, err := fn()
 		if err != nil {
@@ -74,12 +76,23 @@ func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {
 	return zero, nil
 }
 
+func (br *Breaker[T]) success() {
+	if br.getState() != HalfOpen {
+		return
+	}
+	atomic.AddUint32(&br.Counter.Success, 1)
+	if atomic.LoadUint32(&br.Counter.Success) >= br.Counter.SuccessThreshold {
+		br.setState(Closed)
+		atomic.StoreUint32(&br.Counter.Success, 0)
+	}
+}
+
 func (br *Breaker[T]) failure() {
 	if br.getState() == HalfOpen {
 		br.setState(Open)
 	}
 	atomic.AddUint32(&br.Counter.Failure, 1)
-	if br.Counter.Failure >= br.Counter.FailureThrehold {
+	if atomic.LoadUint32(&br.Counter.Failure) >= br.Counter.FailureThreshold {
 		br.State = Open
 		br.startRetry()
 	}
@@ -89,8 +102,9 @@ func InitBreaker[T any](name string) *Breaker[T] {
 	return &Breaker[T]{
 		Name: name,
 		Counter: Counter{
-			FailureThrehold: 10,
-			RetryDuration:   time.Second * 5,
+			FailureThreshold: 5,
+			SuccessThreshold: 0,
+			RetryDuration:    time.Second * 5,
 		},
 		State: Closed,
 	}
