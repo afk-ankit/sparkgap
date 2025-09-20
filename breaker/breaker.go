@@ -6,6 +6,7 @@ package breaker
 
 import (
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -26,18 +27,31 @@ type Breaker[T any] struct {
 	Name    string
 	Counter Counter
 	State   int
+	mu      sync.RWMutex
 }
 
 func (br *Breaker[T]) startRetry() {
 	go func() {
 		time.Sleep(br.Counter.RetryDuration)
-		br.State = HalfOpen
+		br.setState(HalfOpen)
 	}()
+}
+
+func (br *Breaker[T]) setState(state int) {
+	br.mu.Lock()
+	br.State = state
+	br.mu.Unlock()
+}
+
+func (br *Breaker[T]) getState() int {
+	br.mu.RLock()
+	defer br.mu.RUnlock()
+	return br.State
 }
 
 func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {
 	var zero T
-	switch br.State {
+	switch br.getState() {
 	case Open:
 		return zero, fmt.Errorf("circuit breaker is open")
 	case HalfOpen:
@@ -51,7 +65,7 @@ func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {
 		atomic.StoreUint32(&br.Counter.Failure, 0)
 		// TODO: remove logs
 		fmt.Println("Retry Successfull")
-		br.State = Closed
+		br.setState(Closed)
 		return res, nil
 	case Closed:
 		res, err := fn()
@@ -61,21 +75,12 @@ func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {
 		}
 		return res, nil
 	}
-
-	if br.State == Open {
-		return zero, fmt.Errorf("circuit breaker is open")
-	}
-	res, err := fn()
-	if err != nil {
-		br.failure()
-		return res, err
-	}
-	return res, nil
+	return zero, nil
 }
 
 func (br *Breaker[T]) failure() {
-	if br.State == HalfOpen {
-		br.State = Open
+	if br.getState() == HalfOpen {
+		br.setState(Open)
 	}
 	atomic.AddUint32(&br.Counter.Failure, 1)
 	if br.Counter.Failure >= br.Counter.FailureThrehold {
