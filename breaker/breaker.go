@@ -15,63 +15,63 @@ import (
 )
 
 const (
-	closed = iota
-	open
-	halfOpen
+	stateClosed = iota
+	stateOpen
+	stateHalfOpen
 )
 
 const (
 	defaultFailureThreshold          uint32 = 5
 	defaultHalfOpenProbes            uint32 = 10
-	defaultHalfOpenFailurePercentage uint32 = 30
-	defaultRetryFrequency                   = 5 * time.Second
+	defaultHalfOpenMaxFailurePercent uint32 = 30
+	defaultRetryInterval                    = 5 * time.Second
 )
 
 type BreakerConfig struct {
-	FailureThreshold           uint32
-	RetryFrequency             time.Duration
-	HalfStateTotalRetryCount   uint32
-	HalfStateFailurePercentage uint32
-	Timeout                    time.Duration
+	FailureThreshold          uint32
+	RetryInterval             time.Duration
+	HalfOpenMaxProbes         uint32
+	HalfOpenMaxFailurePercent uint32
+	Timeout                   time.Duration
 }
 
 func applyDefaults(c *BreakerConfig) {
 	if c.FailureThreshold == 0 {
 		c.FailureThreshold = defaultFailureThreshold
 	}
-	if c.RetryFrequency <= 0 {
-		c.RetryFrequency = defaultRetryFrequency
+	if c.RetryInterval <= 0 {
+		c.RetryInterval = defaultRetryInterval
 	}
-	if c.HalfStateTotalRetryCount == 0 {
-		c.HalfStateTotalRetryCount = defaultHalfOpenProbes
+	if c.HalfOpenMaxProbes == 0 {
+		c.HalfOpenMaxProbes = defaultHalfOpenProbes
 	}
-	if c.HalfStateFailurePercentage == 0 || c.HalfStateFailurePercentage > 100 {
-		c.HalfStateFailurePercentage = defaultHalfOpenFailurePercentage
+	if c.HalfOpenMaxFailurePercent == 0 || c.HalfOpenMaxFailurePercent > 100 {
+		c.HalfOpenMaxFailurePercent = defaultHalfOpenMaxFailurePercent
 	}
 }
 
 type counter struct {
-	failure                    uint32
-	failureThreshold           uint32
-	retryFrequency             time.Duration
-	halfStateTotalRetryCount   uint32
-	halfStateFailureCount      uint32
-	halfStateSuccessCount      uint32
-	halfStateFailurePercentage uint32
+	failureCount              uint32
+	failureThreshold          uint32
+	retryInterval             time.Duration
+	halfOpenMaxProbes         uint32
+	halfOpenFailureCount      uint32
+	halfOpenSuccessCount      uint32
+	halfOpenMaxFailurePercent uint32
 }
 
 type breaker[T any] struct {
-	name            string
-	counter         counter
-	state           int
-	timeoutDuration time.Duration
-	mu              sync.RWMutex
+	name    string
+	counter counter
+	state   int
+	timeout time.Duration
+	mu      sync.RWMutex
 }
 
 func (br *breaker[T]) startRetry() {
 	go func() {
-		time.Sleep(br.counter.retryFrequency)
-		br.setState(halfOpen)
+		time.Sleep(br.counter.retryInterval)
+		br.setState(stateHalfOpen)
 	}()
 }
 
@@ -89,11 +89,11 @@ func (br *breaker[T]) getState() int {
 
 func stateToString(state int) string {
 	switch state {
-	case closed:
+	case stateClosed:
 		return "Closed"
-	case open:
+	case stateOpen:
 		return "Open"
-	case halfOpen:
+	case stateHalfOpen:
 		return "Half-Open"
 	default:
 		return fmt.Sprintf("Unknown(%d)", state)
@@ -102,24 +102,24 @@ func stateToString(state int) string {
 
 func (br *breaker[T]) LogState() {
 	st := br.getState()
-	failure := atomic.LoadUint32(&br.counter.failure)
-	hFail := atomic.LoadUint32(&br.counter.halfStateFailureCount)
-	hSucc := atomic.LoadUint32(&br.counter.halfStateSuccessCount)
+	failures := atomic.LoadUint32(&br.counter.failureCount)
+	hFail := atomic.LoadUint32(&br.counter.halfOpenFailureCount)
+	hSucc := atomic.LoadUint32(&br.counter.halfOpenSuccessCount)
 
 	tw := table.NewWriter()
 	tw.SetOutputMirror(os.Stdout)
 	tw.SetStyle(table.StyleColoredBlackOnCyanWhite)
 	tw.AppendHeader(table.Row{"Circuit Breaker", br.name})
 	tw.AppendRow(table.Row{"State", stateToString(st)})
-	if br.timeoutDuration > 0 {
-		tw.AppendRow(table.Row{"Timeout", br.timeoutDuration})
+	if br.timeout > 0 {
+		tw.AppendRow(table.Row{"Timeout", br.timeout})
 	}
-	tw.AppendRow(table.Row{"Failure (current/threshold)", fmt.Sprintf("%d / %d", failure, br.counter.failureThreshold)})
-	tw.AppendRow(table.Row{"Retry Duration", br.counter.retryFrequency})
-	tw.AppendRow(table.Row{"Half-Open total probes", br.counter.halfStateTotalRetryCount})
+	tw.AppendRow(table.Row{"Failure (current/threshold)", fmt.Sprintf("%d / %d", failures, br.counter.failureThreshold)})
+	tw.AppendRow(table.Row{"Retry Interval", br.counter.retryInterval})
+	tw.AppendRow(table.Row{"Half-Open max probes", br.counter.halfOpenMaxProbes})
 	tw.AppendRow(table.Row{"Half-Open success count", hSucc})
 	tw.AppendRow(table.Row{"Half-Open failure count", hFail})
-	tw.AppendRow(table.Row{"Half-Open fail % threshold", fmt.Sprintf("%d%%", br.counter.halfStateFailurePercentage)})
+	tw.AppendRow(table.Row{"Half-Open max failure %", fmt.Sprintf("%d%%", br.counter.halfOpenMaxFailurePercent)})
 
 	tw.Render()
 }
@@ -132,17 +132,17 @@ and resets failure count on successful calls in closed state.
 func (br *breaker[T]) Execute(fn func() (T, error)) (T, error) {
 	var zero T
 	switch br.getState() {
-	case open:
+	case stateOpen:
 		return zero, fmt.Errorf("circuit breaker is open")
-	case halfOpen:
+	case stateHalfOpen:
 		res, err := fn()
 		if err != nil {
-			br.setHalfStateCount(0, 1)
+			br.recordHalfOpenResult(false)
 			return res, err
 		}
-		br.setHalfStateCount(1, 0)
+		br.recordHalfOpenResult(true)
 		return res, err
-	case closed:
+	case stateClosed:
 		res, err := fn()
 		if err != nil {
 			br.failure()
@@ -153,33 +153,37 @@ func (br *breaker[T]) Execute(fn func() (T, error)) (T, error) {
 	return zero, nil
 }
 
-func (br *breaker[T]) setHalfStateCount(successCount uint32, failureCount uint32) {
-	if br.getState() != halfOpen {
+func (br *breaker[T]) recordHalfOpenResult(success bool) {
+	if br.getState() != stateHalfOpen {
 		return
 	}
-	atomic.AddUint32(&br.counter.halfStateFailureCount, failureCount)
-	atomic.AddUint32(&br.counter.halfStateSuccessCount, successCount)
-	atomicFailure := atomic.LoadUint32(&br.counter.halfStateFailureCount)
-	atomicSuccess := atomic.LoadUint32(&br.counter.halfStateSuccessCount)
+	if success {
+		atomic.AddUint32(&br.counter.halfOpenSuccessCount, 1)
+	} else {
+		atomic.AddUint32(&br.counter.halfOpenFailureCount, 1)
+	}
 
-	if atomicFailure+atomicSuccess == br.counter.halfStateTotalRetryCount {
-		failurePercentage := uint32(float64(atomicFailure) / float64(br.counter.halfStateTotalRetryCount) * 100)
-		if failurePercentage >= br.counter.halfStateFailurePercentage {
-			br.setState(open)
+	fail := atomic.LoadUint32(&br.counter.halfOpenFailureCount)
+	succ := atomic.LoadUint32(&br.counter.halfOpenSuccessCount)
+
+	if fail+succ == br.counter.halfOpenMaxProbes {
+		failurePercent := uint32(float64(fail) / float64(br.counter.halfOpenMaxProbes) * 100)
+		if failurePercent >= br.counter.halfOpenMaxFailurePercent {
+			br.setState(stateOpen)
 			br.startRetry()
 		} else {
-			atomic.StoreUint32(&br.counter.failure, 0)
-			br.setState(closed)
+			atomic.StoreUint32(&br.counter.failureCount, 0)
+			br.setState(stateClosed)
 		}
-		atomic.StoreUint32(&br.counter.halfStateFailureCount, 0)
-		atomic.StoreUint32(&br.counter.halfStateSuccessCount, 0)
+		atomic.StoreUint32(&br.counter.halfOpenFailureCount, 0)
+		atomic.StoreUint32(&br.counter.halfOpenSuccessCount, 0)
 	}
 }
 
 func (br *breaker[T]) failure() {
-	atomic.AddUint32(&br.counter.failure, 1)
-	if atomic.LoadUint32(&br.counter.failure) >= br.counter.failureThreshold {
-		br.setState(open)
+	atomic.AddUint32(&br.counter.failureCount, 1)
+	if atomic.LoadUint32(&br.counter.failureCount) >= br.counter.failureThreshold {
+		br.setState(stateOpen)
 		br.startRetry()
 	}
 }
@@ -198,12 +202,12 @@ func InitBreaker[T any](name string, cfg *BreakerConfig) *breaker[T] {
 	return &breaker[T]{
 		name: name,
 		counter: counter{
-			failureThreshold:           cfg.FailureThreshold,
-			retryFrequency:             cfg.RetryFrequency,
-			halfStateTotalRetryCount:   cfg.HalfStateTotalRetryCount,
-			halfStateFailurePercentage: cfg.HalfStateFailurePercentage,
+			failureThreshold:          cfg.FailureThreshold,
+			retryInterval:             cfg.RetryInterval,
+			halfOpenMaxProbes:         cfg.HalfOpenMaxProbes,
+			halfOpenMaxFailurePercent: cfg.HalfOpenMaxFailurePercent,
 		},
-		timeoutDuration: cfg.Timeout,
-		state:           closed,
+		timeout: cfg.Timeout,
+		state:   stateClosed,
 	}
 }
