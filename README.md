@@ -1,5 +1,7 @@
 # Sparkgap ⚡
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/afk-ankit/sparkgap.svg)](https://pkg.go.dev/github.com/afk-ankit/sparkgap)
+
 A production-ready Circuit Breaker for Go with built-in jittered backoff strategies. Designed to make your services resilient, fault-tolerant, and herd-resistant when facing downstream failures.
 
 ## About the Project
