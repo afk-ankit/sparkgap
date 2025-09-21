@@ -6,6 +6,7 @@ package breaker
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,7 +77,8 @@ func (br *Breaker[T]) LogState() {
 	hSucc := atomic.LoadUint32(&br.Counter.HalfStateSuccessCount)
 
 	tw := table.NewWriter()
-	tw.SetStyle(table.StyleRounded)
+	tw.SetOutputMirror(os.Stdout)
+	tw.SetStyle(table.StyleColoredBlackOnCyanWhite)
 	tw.AppendHeader(table.Row{"Circuit Breaker", br.Name})
 	tw.AppendRow(table.Row{"State", stateToString(st)})
 	if br.TimeOutDuration > 0 {
@@ -89,7 +91,7 @@ func (br *Breaker[T]) LogState() {
 	tw.AppendRow(table.Row{"Half-Open failure count", hFail})
 	tw.AppendRow(table.Row{"Half-Open fail % threshold", fmt.Sprintf("%d%%", br.Counter.HalfStateFailurePercentage)})
 
-	fmt.Println(tw.Render())
+	tw.Render()
 }
 
 func (br *Breaker[T]) Execute(fn func() (T, error)) (T, error) {

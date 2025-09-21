@@ -16,13 +16,30 @@ func accounts(s string, broke bool) (string, error) {
 
 func main() {
 	br := breaker.InitBreaker[string]("accounts")
+	br.LogState()
 	broke := false
 	go func() {
 		time.Sleep(time.Second * 5)
+		fmt.Println("service B is down")
 		broke = true
-		time.Sleep(time.Second * 30)
+		time.Sleep(time.Second * 15)
+		fmt.Println("service B is up")
+		broke = false
+		time.Sleep(time.Second * 5)
+		fmt.Println("service B is down")
+		broke = true
+		time.Sleep(time.Second * 10)
+		fmt.Println("service B is up")
 		broke = false
 	}()
+
+	go func() {
+		for {
+			time.Sleep(time.Second * 5)
+			br.LogState()
+		}
+	}()
+
 	for range 1000 {
 		time.Sleep(time.Second * 1)
 		val, err := br.Execute(func() (string, error) { return accounts("ankit", broke) })
