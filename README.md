@@ -114,3 +114,7 @@ See [contribution.md](contribution.md) for testing, pre-commit hooks, and PR gui
 ---
 
 Stay tuned for more features, docs, and memes. Contributions welcome!
+
+## License
+
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
