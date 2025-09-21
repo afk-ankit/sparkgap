@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/afk-ankit/sparkgap/breaker"
+	breaker "github.com/afk-ankit/sparkgap"
 )
 
 func accounts(s string, broke bool) (string, error) {

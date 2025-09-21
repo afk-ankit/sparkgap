@@ -1,8 +1,8 @@
 /*
-Package breaker implements a circuit breaker state machine with support for Closed, Open, and Half-Open states.
+Package sparkgap implements a circuit breaker state machine with support for Closed, Open, and Half-Open states.
 It allows wrapping function calls to prevent cascading failures and supports failure thresholds, timeouts, and recovery probes.
 */
-package breaker
+package sparkgap
 
 import (
 	"fmt"

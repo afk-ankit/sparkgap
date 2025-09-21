@@ -13,13 +13,13 @@ A production-ready Circuit Breaker for Go with built-in jittered backoff strateg
 Use Sparkgap in your Go project as a library:
 
 ```sh
-go get github.com/afk-ankit/sparkgap/breaker@latest
+go get github.com/afk-ankit/sparkgap@latest
 ```
 
 Then import the package:
 
 ```go
-import "github.com/afk-ankit/sparkgap/breaker"
+import "github.com/afk-ankit/sparkgap"
 ```
 
 For local development of this repository, see the "Local development" section below.
@@ -35,7 +35,7 @@ import (
    "fmt"
    "time"
 
-   "github.com/afk-ankit/sparkgap/breaker"
+   "github.com/afk-ankit/sparkgap"
 )
 
 // Simulated downstream call
@@ -47,12 +47,15 @@ func accounts(name string, broke bool) (string, error) {
 }
 
 func main() {
-   // Create a breaker for a string-returning dependency
-   br := breaker.InitBreaker[string]("accounts")
-
-   // Optional: tune thresholds and retry timings
-   br.Counter.FailureThrehold = 3            // after 3 consecutive failures → Open
-   br.Counter.RetryDuration = 2 * time.Second // how long to wait before a Half-Open probe
+   // Create a breaker for a string-returning dependency.
+   // Pass nil to use defaults or provide a *sparkgap.BreakerConfig to customize.
+   br := sparkgap.InitBreaker[string]("accounts", &sparkgap.BreakerConfig{
+      FailureThreshold: 3,            // after 3 consecutive failures → Open
+      RetryInterval:    2 * time.Second, // how long to wait before a Half-Open probe
+      // HalfOpenMaxProbes:         10,
+      // HalfOpenMaxFailurePercent: 30,
+      // Timeout:                   0,
+   })
 
    broke := false
 
@@ -82,8 +85,8 @@ func main() {
 
 ### Configuration notes
 
-- FailureThrehold: number of consecutive failures in Closed state before transitioning to Open.
-- RetryDuration: how long the breaker stays Open before moving to Half-Open to probe recovery.
+- FailureThreshold: number of consecutive failures in Closed state before transitioning to Open.
+- RetryInterval: how long the breaker stays Open before moving to Half-Open to probe recovery.
 - In Half-Open, a success closes the circuit and resets the failure counter; a failure re-opens it and schedules another retry window.
 
 ## Examples

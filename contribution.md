@@ -30,7 +30,7 @@ go mod tidy
 
 ## Running tests
 
-Unit tests live next to the code under `breaker/`.
+Unit tests live next to the code in the package directories.
 
 ```sh
 go test ./...
