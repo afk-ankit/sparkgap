@@ -15,7 +15,7 @@ func accounts(s string, broke bool) (string, error) {
 }
 
 func main() {
-	br := breaker.InitBreaker[string]("accounts")
+	br := breaker.InitBreaker[string]("accounts", &breaker.BreakerConfig{})
 	br.LogState()
 	broke := false
 	go func() {
