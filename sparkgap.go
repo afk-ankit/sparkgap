@@ -6,7 +6,6 @@ package sparkgap
 
 import (
 	"fmt"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -100,15 +99,14 @@ func stateToString(state int) string {
 	}
 }
 
-func (br *breaker[T]) LogState() {
+func (br *breaker[T]) LogStateString() {
 	st := br.getState()
 	failures := atomic.LoadUint32(&br.counter.failureCount)
 	hFail := atomic.LoadUint32(&br.counter.halfOpenFailureCount)
 	hSucc := atomic.LoadUint32(&br.counter.halfOpenSuccessCount)
 
 	tw := table.NewWriter()
-	tw.SetOutputMirror(os.Stdout)
-	tw.SetStyle(table.StyleColoredBlackOnCyanWhite)
+	tw.SetStyle(table.StyleRounded)
 	tw.AppendHeader(table.Row{"Circuit Breaker", br.name})
 	tw.AppendRow(table.Row{"State", stateToString(st)})
 	if br.timeout > 0 {
@@ -119,9 +117,10 @@ func (br *breaker[T]) LogState() {
 	tw.AppendRow(table.Row{"Half-Open max probes", br.counter.halfOpenMaxProbes})
 	tw.AppendRow(table.Row{"Half-Open success count", hSucc})
 	tw.AppendRow(table.Row{"Half-Open failure count", hFail})
+	tw.AppendRow(table.Row{"Half-Open failure %", fmt.Sprintf("%d%%", hFail*100/br.counter.halfOpenMaxProbes)})
 	tw.AppendRow(table.Row{"Half-Open max failure %", fmt.Sprintf("%d%%", br.counter.halfOpenMaxFailurePercent)})
 
-	tw.Render()
+	fmt.Println(tw.Render())
 }
 
 /*
@@ -148,6 +147,7 @@ func (br *breaker[T]) Execute(fn func() (T, error)) (T, error) {
 			br.failure()
 			return res, err
 		}
+		atomic.StoreUint32(&br.counter.failureCount, 0)
 		return res, nil
 	}
 	return zero, nil
